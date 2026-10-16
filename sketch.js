@@ -5,7 +5,19 @@
 // ---------------------------------------------------------------------------
 // Settings
 // ---------------------------------------------------------------------------
-const QUERY = "holding pisa tower"; // image search term
+// Fill-in-the-blank cards shown at the start. The player completes one, and
+// "<card start> <answer>" becomes the image search key, e.g. "people holding pisa tower".
+const CARDS = [
+  "People holding",
+  "People pretending to be",
+  "People posing with",
+  "People jumping over",
+  "People hugging",
+  "People balancing",
+  "People lifting",
+  "People pushing",
+];
+const EXAMPLE_ANSWER = "pisa tower"; // placeholder shown in the input
 const ROWS = 5; // grid rows; columns are calculated from the window width
 const RATIO = 3 / 4; // target cell width / height (vertical photos)
 
@@ -40,12 +52,19 @@ let detected = 0; // how many images the detector has processed so far
 let queue = Promise.resolve(); // detections run one at a time, in arrival order
 
 let statusEl; // DOM element showing loading progress
+let showPhotos = false; // toggled with the spacebar
+let searchKey = ""; // chosen in the opening pop-up
+let cardChosen = false; // false while the pop-up is open
 
 // ---------------------------------------------------------------------------
 // Setup: build the grid, then load images and run detection in parallel
 // ---------------------------------------------------------------------------
 async function setup() {
   createCanvas(windowWidth, windowHeight, WEBGL);
+  background(0);
+
+  // nothing is searched or loaded until the player has completed a card
+  searchKey = await askCard();
 
   // WEBGL text needs a loaded font, so progress is shown in a DOM element instead
   statusEl = createDiv("loading...");
@@ -77,9 +96,101 @@ async function setup() {
 
   // Fetch all search pages in parallel (20 results per page, one spare page as a buffer).
   const pages = Array.from({ length: min(7, ceil(needed / 20) + 1) }, (_, n) => n + 1);
-  await Promise.all(pages.map((page) => loadPage(QUERY, page, addImage)));
+  await Promise.all(pages.map((page) => loadPage(searchKey, page, addImage)));
   loaded = true;
   redraw();
+}
+
+// Pop-up with a random fill-in-the-blank card. Resolves with the search key once submitted.
+function askCard() {
+  return new Promise((resolve) => {
+    let start = random(CARDS);
+
+    const overlay = createDiv();
+    overlay.style("position", "fixed");
+    overlay.style("inset", "0");
+    overlay.style("background", "rgba(0,0,0,0.92)");
+    overlay.style("display", "flex");
+    overlay.style("align-items", "center");
+    overlay.style("justify-content", "center");
+    overlay.style("z-index", "10");
+    overlay.style("font-family", "Helvetica, Arial, sans-serif");
+
+    const card = createDiv();
+    card.parent(overlay);
+    card.style("background", "#fff");
+    card.style("color", "#000");
+    card.style("width", "min(420px, 86vw)");
+    card.style("padding", "32px");
+    card.style("border-radius", "12px");
+    card.style("box-shadow", "0 8px 40px rgba(255,255,255,0.15)");
+
+    const prompt = createDiv(start);
+    prompt.parent(card);
+    prompt.style("font-size", "30px");
+    prompt.style("font-weight", "700");
+    prompt.style("line-height", "1.2");
+
+    const input = createInput("");
+    input.parent(card);
+    input.attribute("placeholder", EXAMPLE_ANSWER);
+    input.style("width", "100%");
+    input.style("box-sizing", "border-box");
+    input.style("margin-top", "10px");
+    input.style("font-size", "26px");
+    input.style("font-weight", "700");
+    input.style("font-family", "inherit");
+    input.style("border", "none");
+    input.style("border-bottom", "3px solid #000");
+    input.style("outline", "none");
+
+    const buttons = createDiv();
+    buttons.parent(card);
+    buttons.style("display", "flex");
+    buttons.style("justify-content", "space-between");
+    buttons.style("margin-top", "28px");
+
+    const shuffle = createButton("Another card");
+    shuffle.parent(buttons);
+    const go = createButton("Search");
+    go.parent(buttons);
+    for (const b of [shuffle, go]) {
+      b.style("font", "600 15px Helvetica, Arial, sans-serif");
+      b.style("padding", "10px 18px");
+      b.style("border", "2px solid #000");
+      b.style("border-radius", "8px");
+      b.style("cursor", "pointer");
+    }
+    shuffle.style("background", "#fff");
+    shuffle.style("color", "#000");
+    go.style("background", "#000");
+    go.style("color", "#fff");
+
+    // draw a different card than the current one
+    shuffle.mousePressed(() => {
+      let next = start;
+      while (next === start) next = random(CARDS);
+      start = next;
+      prompt.html(start);
+      input.elt.focus();
+    });
+
+    const submit = () => {
+      const answer = input.value().trim();
+      if (!answer) {
+        input.elt.focus(); // an empty blank is not an answer
+        return;
+      }
+      overlay.remove();
+      cardChosen = true;
+      resolve(`${start} ${answer}`.toLowerCase());
+    };
+    go.mousePressed(submit);
+    input.elt.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") submit();
+    });
+    input.elt.focus();
+  });
 }
 
 // Load ml5's MoveNet in multi-person mode and resolve once the model is ready.
@@ -149,6 +260,9 @@ function draw() {
   ortho();
   translate(-width / 2, -height / 2);
 
+  // photos go first, with depth testing off so the 3D shapes always draw on top of them
+  if (showPhotos) drawPhotos(total);
+
   // lights give the extruded faces their shading
   ambientLight(70);
   directionalLight(255, 255, 255, 0.4, 0.6, -1);
@@ -163,6 +277,33 @@ function draw() {
     const x = floor(i / ROWS) * cellW;
     const y = (i % ROWS) * cellH;
     for (const person of poses[k]) drawStickman(person, img, x, y, cellW, cellH);
+  }
+}
+
+// Draw every photo center-cropped in its grid cell (same crop that toCell() assumes).
+function drawPhotos(total) {
+  const gl = drawingContext;
+  gl.disable(gl.DEPTH_TEST);
+  noStroke();
+  for (let i = 0; i < total; i++) {
+    if (!loaded && i >= imgs.length) break; // still filling the grid
+    const img = imgs[i % imgs.length]; // same image choice as draw()
+    const x = floor(i / ROWS) * cellW;
+    const y = (i % ROWS) * cellH;
+    const s = max(cellW / img.width, cellH / img.height);
+    const sw = cellW / s;
+    const sh = cellH / s;
+    image(img, x, y, cellW, cellH, (img.width - sw) / 2, (img.height - sh) / 2, sw, sh);
+  }
+  gl.enable(gl.DEPTH_TEST);
+}
+
+// Spacebar shows / hides the photo grid.
+function keyPressed() {
+  if (!cardChosen) return; // the pop-up input needs the spacebar for typing
+  if (key === " ") {
+    showPhotos = !showPhotos;
+    return false; // stop the page from scrolling
   }
 }
 

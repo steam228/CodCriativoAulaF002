@@ -2,13 +2,14 @@
 
 A p5.js sketch that searches the web for photos, detects the people in them with a machine-learning model, and replaces every person with an abstract 3D shape: a quad stretched between their **wrists and ankles**, extruded into a solid and rotated with the mouse.
 
-Search term: `"holding pisa tower"` (change `QUERY` in [sketch.js](sketch.js)).
+Search term: you choose it. A pop-up shows a fill-in-the-blank card such as "People holding ___". Complete it, for example with "pisa tower", and the search key becomes "people holding pisa tower". The card list is `CARDS` in [sketch.js](sketch.js).
 
 ## Running it
 
 1. Serve the folder over HTTP, for example with the VS Code Live Server extension or `npx serve`. Opening `index.html` as a `file://` page won't work for the image requests.
-2. Open the page and wait. The grey counter at the bottom left shows photos loaded and photos analysed. The first load also downloads the ml5 model, so it's slower than later loads.
+2. Open the page, complete a card in the pop-up and press Enter or click Search. "Another card" draws a different one. Then wait. The grey counter at the bottom left shows photos loaded and photos analysed. The first load also downloads the ml5 model, so it's slower than later loads.
 3. Move the mouse to rotate all the shapes.
+4. Press the spacebar to show or hide the photo grid behind the shapes. It starts hidden.
 
 Libraries (loaded from a CDN in [index.html](index.html)): p5.js 2.3.4 and ml5.js 1.4.0. No API key is needed.
 
@@ -30,13 +31,13 @@ The sketch grew in small steps. Each step changed one thing:
 ### 1. Settings
 
 ```js
-const QUERY = "holding pisa tower";
+const CARDS = ["People holding", "People pretending to be", /* ... */];
 const ROWS = 5;
 const RATIO = 3 / 4;
 const CONF = 0.1;
 ```
 
-- `QUERY`: the search term.
+- `CARDS`: the openings of the fill-in-the-blank cards. The player's answer is added to the end to make the search key.
 - `ROWS`: number of grid rows.
 - `RATIO`: the cell width divided by its height, so cells are vertical.
 - `CONF`: the minimum confidence a keypoint needs to be used. It is low on purpose. The model gives low confidence to joints it can't see, and a low threshold lets those guesses outside the photo still count.
@@ -126,7 +127,7 @@ Resizes the canvas and recomputes the grid. The photos aren't fetched again, so 
 
 ## Things to tweak
 
-- `QUERY`, `ROWS`: what to search and how many rows.
+- `CARDS`, `EXAMPLE_ANSWER`: the card openings and the placeholder in the answer box. `ROWS`: how many rows.
 - `CONF`: lower it to get more guessed joints outside the photo, raise it to remove stray shapes.
 - `w * 0.25` in `drawStickman()`: thickness of the solids.
 - `ortho()` in `draw()`: delete it for a perspective look.

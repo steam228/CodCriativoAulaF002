@@ -28,7 +28,7 @@ draw()          every frame, shows whatever is ready
 ## Step 1: constants
 
 ```js
-const QUERY = "holding pisa tower";
+const CARDS = ["People holding", "People pretending to be", /* ... */];
 const ROWS = 5;
 const RATIO = 3 / 4;
 const CONF = 0.1;
@@ -36,7 +36,7 @@ const CONF = 0.1;
 
 These are the values you are most likely to change:
 
-- `QUERY` is the image search term.
+- `CARDS` are the openings of the fill-in-the-blank cards shown in the opening pop-up. The text the player adds is the rest of the search key.
 - `ROWS` is the number of grid rows.
 - `RATIO` is the wanted cell width divided by height. Below 1 means vertical cells.
 - `CONF` is the minimum confidence a keypoint needs to count. Keypoints the model can't see get low confidence, so a low value keeps its guesses for joints outside the photo.
@@ -63,7 +63,20 @@ let statusEl;
 
 `setup` is `async` because it waits for network requests.
 
-### 3a. Canvas and status element
+### 3a. Canvas and the opening card
+
+```js
+createCanvas(windowWidth, windowHeight, WEBGL);
+searchKey = await askCard();
+```
+
+`askCard()` builds a pop-up out of plain DOM elements: a dark overlay with a white card. The card shows a random opening from `CARDS`, such as "People holding", followed by a text box. The pop-up has two buttons: "Another card" picks a different opening, and "Search" (or the Enter key) submits. An empty answer is not accepted.
+
+`askCard()` returns a promise, and `setup()` waits for it with `await`. Nothing is searched or loaded until the player answers. The promise resolves with the opening plus the answer in lower case, for example `"people holding pisa tower"`, and that is stored in `searchKey` and used for every search page.
+
+While the pop-up is open `cardChosen` is false, and `keyPressed()` returns early. This matters because the spacebar handler ends with `return false`, which would stop the player from typing spaces in the text box.
+
+### 3a2. Canvas and status element
 
 ```js
 createCanvas(windowWidth, windowHeight, WEBGL);
@@ -112,7 +125,7 @@ This is the point where downloading and detecting overlap: detection starts for 
 
 ```js
 const pages = Array.from({ length: min(7, ceil(needed / 20) + 1) }, (_, n) => n + 1);
-await Promise.all(pages.map((page) => loadPage(QUERY, page, addImage)));
+await Promise.all(pages.map((page) => loadPage(searchKey, page, addImage)));
 loaded = true;
 ```
 
@@ -287,6 +300,19 @@ To get the side's normal, the code takes the edge `(b − a)` and turns it 90° 
 `endShape()` draws everything, and `pop()` restores the transform.
 
 A known limit: the front face is split along the same diagonal every time. For a convex quad that is right. For a concave quad, it can produce a wrong face.
+
+## Step 10b: spacebar toggle, `drawPhotos()` and `keyPressed()`
+
+```js
+let showPhotos = false;
+function keyPressed() {
+  if (key === " ") { showPhotos = !showPhotos; return false; }
+}
+```
+
+`keyPressed` runs once per key press. The spacebar flips `showPhotos`, and `return false` stops the browser from scrolling the page.
+
+When `showPhotos` is true, `draw()` calls `drawPhotos()` before it sets up the lights. It draws each photo in its cell with the nine-argument form of `image()`: the cell rectangle as the destination and the centered crop (the same maths as `toCell()`) as the source. Depth testing is switched off while the photos are drawn and back on afterwards, so the 3D shapes always appear on top of the photos, even when they rotate towards the back. Drawing the photos before the lights keeps them at their natural colours.
 
 ## Step 11: `windowResized()`
 
